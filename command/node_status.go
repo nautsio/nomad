@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/hashicorp/nomad/api"
 )
+
+// This is the default length for shortened identifiers
+const prefixLength = 8
 
 type NodeStatusCommand struct {
 	Meta
@@ -31,6 +36,9 @@ Node Status Options:
   -short
     Display short output. Used only when a single node is being
     queried, and drops verbose output about node allocations.
+
+  -full
+	Don't shorten the node identifer.
 `
 	return strings.TrimSpace(helpText)
 }
@@ -40,11 +48,12 @@ func (c *NodeStatusCommand) Synopsis() string {
 }
 
 func (c *NodeStatusCommand) Run(args []string) int {
-	var short bool
+	var short, full bool
 
 	flags := c.Meta.FlagSet("node-status", FlagSetClient)
 	flags.Usage = func() { c.Ui.Output(c.Help()) }
 	flags.BoolVar(&short, "short", false, "")
+	flags.BoolVar(&full, "full", false, "")
 
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -78,12 +87,15 @@ func (c *NodeStatusCommand) Run(args []string) int {
 			return 0
 		}
 
+		// Map node identifiers to short or full identifier
+		ids := mapIds(nodes, full)
+
 		// Format the nodes list
 		out := make([]string, len(nodes)+1)
 		out[0] = "ID|DC|Name|Class|Drain|Status"
 		for i, node := range nodes {
 			out[i+1] = fmt.Sprintf("%s|%s|%s|%s|%v|%s",
-				node.ID,
+				ids[node.ID],
 				node.Datacenter,
 				node.Name,
 				node.NodeClass,
@@ -112,13 +124,15 @@ func (c *NodeStatusCommand) Run(args []string) int {
 			return 1
 		}
 		if len(nodes) > 1 {
+			ids := mapIds(nodes, full)
+
 			// Format the nodes list that matches the prefix so that the user
 			// can create a more specific request
 			out := make([]string, len(nodes)+1)
 			out[0] = "ID|DC|Name|Class|Drain|Status"
 			for i, node := range nodes {
 				out[i+1] = fmt.Sprintf("%s|%s|%s|%s|%v|%s",
-					node.ID,
+					ids[node.ID],
 					node.Datacenter,
 					node.Name,
 					node.NodeClass,
@@ -192,4 +206,41 @@ func (c *NodeStatusCommand) Run(args []string) int {
 		c.Ui.Output(formatList(allocs))
 	}
 	return 0
+}
+
+// mapIds maps node identifiers to their full or shortened versions while
+// checking for collisions
+func mapIds(nodes []*api.NodeListStub, full bool) map[string]string {
+	ids := make(map[string]string)
+	seen := make(map[string]struct{})
+
+	// An anonymous helper function that tries to map the node id
+	// to a shortened version and returns the result of that operation
+	mapShortId := func(id string, length int) bool {
+		shortId := id[:length]
+		if _, ok := seen[shortId]; !ok {
+			ids[id] = shortId
+			seen[shortId] = struct{}{}
+			return true
+		}
+		return false
+	}
+
+	for _, node := range nodes {
+		// Map to the full id if the user requested this
+		if full {
+			ids[node.ID] = node.ID
+			continue
+		}
+		if !mapShortId(node.ID, prefixLength) {
+			// the current shortened id collides with a previous one, so we
+			// start increasing the length until we resolve the collision
+			for i := prefixLength + 1; i <= len(node.ID); i++ {
+				if mapShortId(node.ID, i) {
+					break
+				}
+			}
+		}
+	}
+	return ids
 }
