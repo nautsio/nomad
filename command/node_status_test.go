@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/nomad/api"
 	"github.com/hashicorp/nomad/testutil"
 	"github.com/mitchellh/cli"
 )
@@ -120,5 +121,49 @@ func TestNodeStatusCommand_Fails(t *testing.T) {
 	}
 	if out := ui.ErrorWriter.String(); !strings.Contains(out, "No node(s) with prefix") {
 		t.Fatalf("expected not found error, got: %s", out)
+	}
+}
+
+func TestNodeStatusCommand_mapIdsShorten(t *testing.T) {
+	nodes := []*api.NodeListStub{
+		&api.NodeListStub{ID: "aaaabbbb_xx"},
+		&api.NodeListStub{ID: "ccccdddd_yy"},
+		&api.NodeListStub{ID: "aaaabbbb_zz"},
+	}
+
+	ids := mapIds(nodes, false)
+
+	if ids["aaaabbbb_xx"] != "aaaabbbb" {
+		t.Fatalf("expected 'aaaabbbb', got: %s", ids["aaaabbbb_xx"])
+	}
+
+	if ids["ccccdddd_yy"] != "ccccdddd" {
+		t.Fatalf("expected 'aaaabbbb', got: %s", ids["ccccdddd_yy"])
+	}
+
+	if ids["aaaabbbb_zz"] != "aaaabbbb_" {
+		t.Fatalf("expected 'aaaabbbb_', got: %s", ids["aaaabbbb_zz"])
+	}
+}
+
+func TestNodeStatusCommand_mapIdsFull(t *testing.T) {
+	nodes := []*api.NodeListStub{
+		&api.NodeListStub{ID: "aaaabbbb_xx"},
+		&api.NodeListStub{ID: "ccccdddd_yy"},
+		&api.NodeListStub{ID: "aaaabbbb_zz"},
+	}
+
+	ids := mapIds(nodes, true)
+
+	if ids["aaaabbbb_xx"] != "aaaabbbb_xx" {
+		t.Fatalf("expected 'aaaabbbb_xx', got: %s", ids["aaaabbbb_xx"])
+	}
+
+	if ids["ccccdddd_yy"] != "ccccdddd_yy" {
+		t.Fatalf("expected 'aaaabbbb_yy', got: %s", ids["ccccdddd_yy"])
+	}
+
+	if ids["aaaabbbb_zz"] != "aaaabbbb_zz" {
+		t.Fatalf("expected 'aaaabbbb_zz', got: %s", ids["aaaabbbb_zz"])
 	}
 }
